@@ -23,11 +23,17 @@ export default async function Home() {
   const roles = user.roles.map((r) => r.role);
 
   // Route to appropriate dashboard based on role
+  if (roles.includes("SCHOOL_HEAD")) {
+    return redirect("/school-head-dashboard");
+  }
   if (roles.includes("DRRM_COORDINATOR")) {
     return redirect("/coordinator-dashboard");
   }
-  if (roles.includes("SCHOOL_HEAD")) {
-    return redirect("/coordinator-dashboard"); // Shared School Head view
+  if (roles.includes("SCHOOL_PERSONNEL")) {
+    return redirect("/report"); // School Personnel see report form and their summary
+  }
+  if (roles.includes("COMMUNITY_USER")) {
+    return redirect("/my-submissions");
   }
 
   // Default to report form for other roles
