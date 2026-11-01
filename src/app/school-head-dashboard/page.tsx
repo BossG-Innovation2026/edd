@@ -1,10 +1,12 @@
-// School Head dashboard. FR-DR-01: role-specific views with risk profile and high-band items.
+// School Head dashboard. FR-DR-01 & FR-UX-03: role-specific views with school map showing risk bands.
 
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createPrismaClient } from "@/lib/db";
 import { getSchoolHeadDashboard } from "@/modules/dashboards/service";
+import { getRiskBand } from "@/modules/risk-scoring/service";
+import { SchoolMap } from "./SchoolMap";
 
 export default async function SchoolHeadDashboardPage() {
   const session = await getServerSession(authOptions);
@@ -28,9 +30,55 @@ export default async function SchoolHeadDashboardPage() {
 
   const dashboard = await getSchoolHeadDashboard(db);
 
+  // FR-UX-03: Compute risk profile for each zone for the school map.
+  const zones = await db.zone.findMany({
+    orderBy: { sortOrder: "asc" },
+  });
+
+  const zoneRiskProfiles = await Promise.all(
+    zones.map(async (zone) => {
+      const zoneScores = await db.riskScore.findMany({
+        where: { hazard: { zoneId: zone.id } },
+        select: { score: true },
+      });
+
+      const meanScore = zoneScores.length > 0
+        ? zoneScores.reduce((sum, s) => sum + s.score, 0) / zoneScores.length
+        : 0;
+
+      return {
+        id: zone.id,
+        name: zone.name,
+        building: zone.building,
+        riskProfile: {
+          meanScore: Math.round(meanScore * 100) / 100,
+          band: getRiskBand(meanScore),
+          hazardCount: zoneScores.length,
+        },
+      };
+    })
+  );
+
   return (
     <div className="p-4 max-w-6xl">
-      <h1 className="text-3xl font-bold mb-6">School Head Dashboard</h1>
+      <h1 className="text-3xl font-bold mb-6">School Safety Map</h1>
+      <p className="text-gray-600 mb-4">
+        FR-UX-03: Click on any zone to see detailed risk information. Colors show risk bands:
+        <strong style={{ color: "#dc2626" }}> Red = High</strong>,
+        <strong style={{ color: "#eab308" }}> Yellow = Medium</strong>,
+        <strong style={{ color: "#16a34a" }}> Green = Low</strong>.
+      </p>
+
+      {/* FR-UX-03: School map with zones shaded by risk band */}
+      <section className="mb-8">
+        <SchoolMap
+          zones={zoneRiskProfiles}
+          onZoneSelect={(zoneId) => {
+            // Handler for zone selection (already handled in SchoolMap component)
+            console.log("Selected zone:", zoneId);
+          }}
+        />
+      </section>
 
       {/* Risk Profile Summary */}
       <section className="mb-8 p-4 border rounded-lg bg-white shadow-sm">
