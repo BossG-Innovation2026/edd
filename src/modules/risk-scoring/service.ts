@@ -121,6 +121,12 @@ export async function computeRiskScore(
       },
     });
 
+    // FR-HL-06: mark hazard as VERIFIED after risk score is computed.
+    await db.hazardReport.update({
+      where: { id: input.hazardId },
+      data: { status: "VERIFIED" },
+    });
+
     return { ok: true, scoreId: riskScore.id, score, band };
   } catch (error) {
     console.error("computeRiskScore error:", error);

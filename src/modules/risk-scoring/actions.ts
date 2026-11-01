@@ -37,3 +37,33 @@ export async function computeRiskScoreAction(
     await db.$disconnect();
   }
 }
+
+// FR-HL-06: verifier rejects a hazard report.
+export async function rejectHazardAction(
+  hazardId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return { ok: false, error: "Not authenticated" };
+
+  const db = createPrismaClient(process.env.DATABASE_URL!);
+  try {
+    const user = await db.user.findUnique({
+      where: { id: session.user.id },
+      include: { roles: { select: { role: true } } },
+    });
+
+    if (!user || !canVerifyHazards(user.roles.map((r) => r.role))) {
+      return { ok: false, error: "Only School Head and DRRM Coordinator can reject hazards." };
+    }
+
+    // Mark hazard as REJECTED.
+    await db.hazardReport.update({
+      where: { id: hazardId },
+      data: { status: "REJECTED" },
+    });
+
+    return { ok: true };
+  } finally {
+    await db.$disconnect();
+  }
+}
