@@ -424,6 +424,122 @@ label, legend { display: block; font-weight: 600; margin-bottom: 6px; }
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
+
+/* FR-UX-05: High-risk notification */
+.high-risk-notification {
+  background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+  border: 2px solid #dc2626;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  position: relative;
+}
+
+.notification-icon {
+  font-size: 1.5rem;
+}
+
+.notification-title {
+  margin: 0;
+  color: #dc2626;
+  font-size: 1.1rem;
+  flex: 1;
+}
+
+.notification-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.notification-close:hover {
+  background: rgba(220, 38, 38, 0.2);
+}
+
+.notification-content {
+  margin-bottom: 12px;
+}
+
+.notification-message {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.notification-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.notify-button,
+.dismiss-button {
+  flex: 1;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.notify-button {
+  background: #dc2626;
+  color: white;
+}
+
+.notify-button:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.notify-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dismiss-button {
+  background: transparent;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+}
+
+.dismiss-button:hover {
+  background: rgba(220, 38, 38, 0.05);
+}
 fieldset { border: 0; padding: 0; margin: 0 0 16px; }
 
 input[type="text"], input[type="email"], input[type="password"], input[type="datetime-local"], select, textarea {
