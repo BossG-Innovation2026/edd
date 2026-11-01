@@ -57,6 +57,7 @@ model Zone {
   name      String // e.g. "Classrooms 101-104"
   sortOrder Int            @default(0)
   hazards   HazardReport[]
+  assets    Asset[]        // FR-AV-07: assets shown on the school map, colored by band
 
   @@unique([building, floor, name])
 }
@@ -140,12 +141,16 @@ model HazardReport {
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
-  type       HazardType    @relation(fields: [typeId], references: [id])
-  zone       Zone          @relation(fields: [zoneId], references: [id])
-  reporter   User          @relation("Reporter", fields: [reporterId], references: [id])
-  verifiedBy User?         @relation("Verifier", fields: [verifiedById], references: [id])
+  type               HazardType       @relation(fields: [typeId], references: [id])
+  zone               Zone             @relation(fields: [zoneId], references: [id])
+  reporter           User             @relation("Reporter", fields: [reporterId], references: [id])
+  verifiedBy         User?            @relation("Verifier", fields: [verifiedById], references: [id])
   // Record field: photos (optional). Upload is FR-HL-05, not built yet; the table is ready for it.
-  photos     HazardPhoto[]
+  photos             HazardPhoto[]
+  // Module 3.3: risk score for this hazard.
+  riskScore          RiskScore?
+  // Module 3.4: sentiment analysis of the description.
+  sentimentComments  SurveyComment[]  @relation("HazardComments")
 
   @@index([status])
   @@index([zoneId])
@@ -165,4 +170,304 @@ model HazardPhoto {
 model ReportCounter {
   year Int @id
   last Int @default(0)
+}
+
+// ---------------------------------------------------------------------------
+// Module 3.2: Asset Vulnerability Mapping
+// ---------------------------------------------------------------------------
+
+// FR-AV-02: asset categories. Stored as data, not code, so they can change (NFR-FL-01).
+model AssetCategory {
+  id    String  @id @default(cuid())
+  code  String  @unique // e.g. "BUILDINGS", "UTILITIES"
+  name  String  @unique
+  order Int     @default(0)
+  assets Asset[]
+}
+
+// FR-AV-01, FR-AV-03: asset record with five criterion ratings (FR-AV-03).
+// VI is computed from the five ratings (Section 3.2 formula: mean of C1..C5).
+model Asset {
+  id                String          @id @default(cuid())
+  categoryId        String
+  name              String
+  zoneId            String
+  quantity          Int             @default(1)
+  dateAcquired      DateTime?
+  lastInspectionAt  DateTime?
+  nextServiceAt     DateTime?
+  safeguardsInPlace String?
+  responsiblePerson String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  category          AssetCategory  @relation(fields: [categoryId], references: [id])
+  zone              Zone            @relation(fields: [zoneId], references: [id])
+  ratings           AssetRating[]   // FR-AV-04: each rating kept with date and rater
+  photos            AssetPhoto[]
+  scoresUsingThisVI RiskScore[]     @relation("ScoreFedBy") // For natural/facility hazards: I = mean VI of zone's assets
+
+  @@index([categoryId])
+  @@index([zoneId])
+}
+
+// FR-AV-03, FR-AV-04: five criterion ratings (1–5) per asset, with date and rater.
+// These are: physical condition, exposure, criticality, adaptive capacity, maintenance.
+// A higher number means more vulnerable (Section 3.2 rating anchors).
+model AssetRating {
+  id                   String  @id @default(cuid())
+  assetId              String
+  physicalCondition    Int     // 1-5
+  exposure             Int     // 1-5
+  criticality          Int     // 1-5
+  adaptiveCapacityGap  Int     // 1-5
+  maintenanceStatus    Int     // 1-5
+  // VI = mean of the five ratings (Section 3.2 formula).
+  vulnerabilityIndex   Float   // Computed: (sum of 5 ratings) / 5; 1.00 to 5.00
+  ratedBy              String
+  ratedAt              DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+}
+
+model AssetPhoto {
+  id        String  @id @default(cuid())
+  assetId   String
+  filePath  String
+  sizeBytes Int
+  uploadedAt DateTime @default(now())
+  asset     Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Module 3.3: Risk Scoring
+// ---------------------------------------------------------------------------
+
+// FR-RS-01 to FR-RS-08: risk score R = L × I. L is likelihood (1-5), rated by verifier.
+// I is either mean VI of zone's assets (natural/facility) or severity S (1-5, health/sanitation/security).
+// R ranges 1.00 to 25.00; classified as Low/Medium/High (Section 3.3 bands).
+model RiskScore {
+  id              String  @id @default(cuid())
+  hazardId        String  @unique
+  // Likelihood, rated by verifier (Section 3.3 anchors).
+  likelihood      Int     // 1-5
+  // For natural/facility: this is the mean VI of assets in the hazard's zone.
+  // For health/sanitation/security: this is the verifier's severity rating S.
+  impact          Float   // 1.00 to 5.00
+  // Whether impact came from asset VI or fallback severity S.
+  impactType      String  // "VI_MEAN" | "SEVERITY_FALLBACK"
+  // Computed: R = L × I (Section 3.3).
+  score           Float   // 1.00 to 25.00
+  // Band classification (Section 3.3): Low (1.00–8.20), Medium (8.21–17.80), High (17.81–25.00).
+  band            String  // "LOW" | "MEDIUM" | "HIGH"
+  // FR-RS-05: recompute when L, S, or VI changes; keep history.
+  computedAt      DateTime @default(now())
+  computedBy      String  // User ID of verifier
+
+  hazard          HazardReport @relation(fields: [hazardId], references: [id])
+  // For natural/facility hazards: assets in the zone (used to compute VI mean).
+  assetsThatFed   Asset[]      @relation("ScoreFedBy") // Assets whose VI fed into this score
+
+  @@index([hazardId])
+  @@index([band])
+}
+
+// ---------------------------------------------------------------------------
+// Module 3.4: Community Sentiment and Feeling Analysis
+// ---------------------------------------------------------------------------
+
+// FR-SA-01: the DRRM Coordinator schedules surveys.
+model Survey {
+  id            String  @id @default(cuid())
+  title         String
+  description   String?
+  // FR-SA-02: survey items (typically 1–5 items, Strongly Disagree to Strongly Agree).
+  // Store items as JSON to allow flexible item counts and reverse-scoring flags.
+  items         String  // JSON: [{id, text, reverseScore}]
+  scheduledFor  DateTime
+  closedAt      DateTime?
+  createdBy     String  // DRRM Coordinator
+  createdAt     DateTime @default(now())
+
+  responses     SurveyResponse[]
+  comments      SurveyComment[]
+  metrics       SurveyMetrics?
+}
+
+// FR-SA-02: each respondent's answers to survey items.
+// Stored separately from identity (FR-SA-08: "responses stored apart from identities").
+model SurveyResponse {
+  id        String  @id @default(cuid())
+  surveyId  String
+  // Respondent ID (or null for anonymous). FR-SA-08: separate from answers.
+  respondentId String?
+  // Answers as JSON: {itemId: 1-5, ...}
+  answers   String  // JSON
+  respondedAt DateTime @default(now())
+
+  survey    Survey  @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+}
+
+// FR-SA-03: free-text comments, labeled with sentiment and feeling.
+// Includes hazard report descriptions (FR-SA-01: "data sources: safety perception surveys and the free-text description of each hazard report").
+model SurveyComment {
+  id            String  @id @default(cuid())
+  surveyId      String?
+  hazardId      String? // A comment may come from a hazard report description instead of a survey.
+  text          String
+  language      String  // FR-SA-04: detected language code (e.g. "en", "fil", "tl")
+  // FR-SA-03: sentiment and feeling labels from the built-in bilingual lexicon, handling negation.
+  detectedSentiment String? // "POSITIVE" | "NEGATIVE" | "NEUTRAL"
+  detectedFeeling   String? // "FEAR" | "ANGER" | "SADNESS" | "TRUST" | "NEUTRAL"
+  // FR-SA-05: original and corrected labels both kept.
+  confirmedSentiment String?
+  confirmedFeeling   String?
+  confirmedBy        String? // User ID
+  confirmedAt        DateTime?
+  // FR-SA-12: if matched fewer than 2 words or is a regional language, goes to manual review.
+  inManualReview     Boolean @default(false)
+  reviewedAt         DateTime?
+  reviewedBy         String?
+  createdAt          DateTime @default(now())
+
+  survey  Survey?        @relation(fields: [surveyId], references: [id], onDelete: SetNull)
+  hazard  HazardReport?  @relation("HazardComments", fields: [hazardId], references: [id], onDelete: SetNull)
+}
+
+// FR-SA-07, FR-SA-02, FR-SA-06: computed indices (SPI, NSS) by group and period.
+// SPI = mean of responses, reverse-scored. NSS = (P - N) / (P + Neu + N).
+// These are typically computed on-demand from Survey responses and comments, but cached here.
+model SurveyMetrics {
+  id           String  @id @default(cuid())
+  surveyId     String  @unique
+  period       String  // e.g. "2026-Q1"
+  spi          Float?  // Safety Perception Index, 1.00–5.00
+  nss          Float?  // Net Sentiment Score, −1.0 to +1.0
+  positiveCount  Int
+  neutralCount   Int
+  negativeCount  Int
+  computedAt   DateTime @default(now())
+
+  survey Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Module 3.6: Incident and Damage Reporting
+// ---------------------------------------------------------------------------
+
+enum IncidentType {
+  DISASTER_OR_FACILITY  // DO 21, s. 2015
+  LEARNER_PROTECTION    // DO 6, s. 2026
+}
+
+// FR-IN-01, FR-IN-02: incident records (two types; see SRS 3.6 fields A and B).
+model IncidentReport {
+  id              String        @id @default(cuid())
+  incidentNumber  String        @unique // Human-readable, e.g. "INC-2026-001"
+  type            IncidentType
+  name            String
+  description     String?
+  // When the incident occurred.
+  occurredAt      DateTime
+  // Zones and assets affected.
+  zones           String        // JSON: [zoneId, ...]
+  // FR-IN-01 fields A: for disaster/facility incidents.
+  classroomsTotallyDamaged Int?
+  classroomsWithMajorDamage Int?
+  classroomsWithMinorDamage Int?
+  temporaryLearningSpacesNeeded Boolean?
+  personnelDeceased Int?
+  personnelInjured Int?
+  personnelMissing Int?
+  personnelDisplaced Int?
+  classroomsUsedForEvacuation Int?
+  evacueesRemainingAfterThreeDays Int?
+  damagedArmchairs Int?
+  damagedLearningMaterials Int?
+  damagedComputerSets Int?
+  actionsTaken String?
+  // FR-IN-02 fields B: for learner protection incidents.
+  nature          String?       // e.g. "Bullying", "Violence", "Harassment"
+  learnersInvolved Int?         // Count only (FR-IN-05)
+  setting         String?       // Date, time, location as text
+  preventiveMeasures String?
+  caseStatus      String?       // e.g. "Open", "Closed", "Pending"
+  dateReferredToDisciplining DateTime?
+  dateFactFinding DateTime?
+  dateReportToSdsAndRd DateTime?
+  // FR-IN-03: linkable to hazard reports.
+  linkedHazards   String        // JSON: [hazardId, ...]
+  // FR-IN-06: learner protection details visible only to authorized roles.
+  isLearnerProtection Boolean @default(false)
+  // Track who created/updated (FR-UR-08).
+  reportedBy      String
+  reportedAt      DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  deadlines       IncidentDeadline[]
+
+  @@index([type])
+  @@index([isLearnerProtection])
+}
+
+// FR-IN-07: deadline tracking and alerts for incident reporting.
+model IncidentDeadline {
+  id              String  @id @default(cuid())
+  incidentId      String
+  deadlineType    String  // "IMRS_ENCODING" | "REFERRAL_TO_AUTHORITY" | "FACT_FINDING" | "REPORT_TO_SDS"
+  dueAt           DateTime
+  isOverdue       Boolean @default(false)
+  alertSentAt     DateTime?
+  completedAt     DateTime?
+  incident        IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+  @@index([isOverdue])
+}
+
+// ---------------------------------------------------------------------------
+// Module 3.7: Report Generation
+// ---------------------------------------------------------------------------
+
+// FR-RP-01: report catalogue metadata. Each report type with its legal basis, trigger, deadline, recipient.
+model ReportTemplate {
+  id            String  @id @default(cuid())
+  reportType    String  @unique // e.g. "DAMAGE_AND_IMPACT_IMRS", "CLASS_SUSPENSION_RECORD"
+  name          String
+  legalBasis    String
+  trigger       String
+  deadline      String  // e.g. "8 hours", "48 hours", "5 calendar days"
+  recipient     String
+  version       String  // FR-RP-02: version when official form changes
+  isActive      Boolean @default(true)
+  createdAt     DateTime @default(now())
+}
+
+// FR-RP-03, FR-RP-05, FR-RP-06: generated reports with School Head approval and export history.
+model GeneratedReport {
+  id            String  @id @default(cuid())
+  reportType    String  // Reference to ReportTemplate.reportType
+  sourceData    String  // JSON: which hazards, incidents, surveys, etc. fed this report
+  isDraft       Boolean @default(true) // FR-RP-03: unverified reports marked draft
+  // FR-RP-05: School Head approval.
+  approvedBy    String?
+  approvedAt    DateTime?
+  submittedAt   DateTime?
+  // FR-RP-06: export history.
+  exportedAt    DateTime?
+  exportFormat  String? // "PDF" | "EXCEL"
+  exportPath    String?
+  // FR-RP-04: deadline countdown.
+  dueAt         DateTime?
+  alertedAt24h  DateTime?
+  alertedAtDeadline DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([reportType])
+  @@index([isDraft])
+  @@index([approvedBy])
 }

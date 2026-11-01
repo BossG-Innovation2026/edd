@@ -19,6 +19,14 @@ export const SAMPLE_ZONES: { building: string; floor: string; name: string }[] =
   { building: "School grounds", floor: "Outdoor", name: "Comfort rooms block" },
 ];
 
+// FR-AV-02: asset categories (Section 3.2 table). Stored as data, not code, for flexibility (NFR-FL-01).
+export const ASSET_CATEGORIES: { code: string; name: string }[] = [
+  { code: "BUILDINGS_CLASSROOMS", name: "Buildings and classrooms" },
+  { code: "UTILITIES", name: "Utilities" },
+  { code: "SAFETY_EQUIPMENT", name: "Safety and emergency equipment" },
+  { code: "ICT_LEARNING", name: "ICT and learning equipment" },
+];
+
 export const TEST_ACCOUNTS: { email: string; name: string; roles: Role[]; active: boolean }[] = [
   { email: "head@test.local", name: "Test School Head", roles: ["SCHOOL_HEAD"], active: true },
   { email: "drrm@test.local", name: "Test DRRM Coordinator", roles: ["DRRM_COORDINATOR"], active: true },
@@ -30,6 +38,7 @@ export const TEST_ACCOUNTS: { email: string; name: string; roles: Role[]; active
 ];
 
 export async function seedCatalogAndZones(db: Db): Promise<void> {
+  // FR-HL-02: hazard categories and types.
   for (const [c, category] of HAZARD_CATALOG.entries()) {
     const saved = await db.hazardCategory.upsert({
       where: { code: category.code },
@@ -45,11 +54,20 @@ export async function seedCatalogAndZones(db: Db): Promise<void> {
       });
     }
   }
+  // Sample zones (FR-HL-03).
   for (const [i, zone] of SAMPLE_ZONES.entries()) {
     await db.zone.upsert({
       where: { building_floor_name: zone },
       update: { sortOrder: i },
       create: { ...zone, sortOrder: i },
+    });
+  }
+  // FR-AV-02: asset categories (Module 3.2).
+  for (const [i, ac] of ASSET_CATEGORIES.entries()) {
+    await db.assetCategory.upsert({
+      where: { code: ac.code },
+      update: { name: ac.name, order: i },
+      create: { code: ac.code, name: ac.name, order: i },
     });
   }
 }
@@ -80,7 +98,9 @@ async function main() {
   try {
     await seedCatalogAndZones(db);
     await seedTestAccounts(db, password);
-    console.log(`Seeded ${HAZARD_CATALOG.length} categories, ${SAMPLE_ZONES.length} sample zones, ${TEST_ACCOUNTS.length} test accounts.`);
+    console.log(
+      `Seeded: ${HAZARD_CATALOG.length} hazard categories, ${SAMPLE_ZONES.length} sample zones, ${ASSET_CATEGORIES.length} asset categories, ${TEST_ACCOUNTS.length} test accounts.`
+    );
   } finally {
     await db.$disconnect();
   }
