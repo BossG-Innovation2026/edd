@@ -131,6 +131,8 @@ model HazardReport {
   description         String
   // Record field: reporter's initial severity.
   initialSeverity     InitialSeverity
+  // FR-UX-06: anonymous flag for security and personal safety reports.
+  isAnonymous         Boolean         @default(false)
   // Record field: status (FR-HL-06 uses it to keep unverified reports out of scores and dashboards).
   status              HazardStatus    @default(SUBMITTED)
   // Record field: reporter.

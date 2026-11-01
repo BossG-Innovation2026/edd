@@ -30,6 +30,7 @@ type Draft = {
   description: string;
   observedAt: string; // value of <input type="datetime-local">, in the phone's local time
   initialSeverity: string;
+  isAnonymous: boolean; // FR-UX-06: anonymous for security/safety reports
 };
 
 function localNow(): string {
@@ -62,6 +63,7 @@ export function HazardReportForm({ options, onSubmit }: Props) {
     description: "",
     observedAt: localNow(),
     initialSeverity: "",
+    isAnonymous: false,
   }));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formMessage, setFormMessage] = useState<string | null>(null);
@@ -191,7 +193,11 @@ export function HazardReportForm({ options, onSubmit }: Props) {
       {step === 1 && (
         <>
           <fieldset aria-describedby={errors.categoryId ? "categoryId-error" : undefined}>
-            <legend>Category</legend>
+            <legend className="field-label">
+              Category
+              <HelpIcon title="What type of hazard?" text="Choose the category that best describes the hazard. Categories help the school prioritize response." />
+              <span className="depedterm">(Hazard Classification, FR-HL-02)</span>
+            </legend>
             <div className="choices">
               {options.categories.map((c) => (
                 <label key={c.id} className="choice">
@@ -238,6 +244,23 @@ export function HazardReportForm({ options, onSubmit }: Props) {
                 onChange={(e) => update("otherTypeSpecified", e.target.value)}
               />
             </Field>
+          )}
+
+          {/* FR-UX-06: Anonymous option visible on step 1 for security/personal safety reports */}
+          {(draft.categoryId === options.categories.find(c => c.name === "Security and personal safety")?.id) && (
+            <div className="field">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={draft.isAnonymous}
+                  onChange={(e) => update("isAnonymous", e.target.checked)}
+                />
+                <span>
+                  Submit this report anonymously
+                  <HelpIcon title="Why anonymous?" text="Anonymous reports help us address security issues without fear of retaliation. Your identity is not recorded." />
+                </span>
+              </label>
+            </div>
           )}
         </>
       )}
@@ -337,5 +360,37 @@ function ErrorText({ id, message }: { id: string; message?: string }) {
     <p id={id} className="error" role="alert">
       {message}
     </p>
+  );
+}
+
+// FR-UX-09: Help icon for form fields (FR-HL-01).
+function HelpIcon({ title, text }: { title: string; text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="help-icon-container">
+      <button
+        type="button"
+        className="help-icon"
+        onClick={() => setShow(!show)}
+        title={title}
+        aria-label={title}
+      >
+        ?
+      </button>
+      {show && (
+        <div className="help-popup" role="tooltip">
+          <strong>{title}</strong>
+          <p>{text}</p>
+          <button
+            type="button"
+            className="help-close"
+            onClick={() => setShow(false)}
+            aria-label="Close help"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </span>
   );
 }

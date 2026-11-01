@@ -30,6 +30,8 @@ export const hazardReportInputSchema = z.object({
     .date({ error: "Enter the date and time you saw the hazard." })
     .refine((d) => d.getTime() <= Date.now() + CLOCK_SKEW_MS, { error: "The date and time cannot be in the future." }),
   initialSeverity: z.enum(["LOW", "MODERATE", "HIGH"], { error: "Choose how serious it looks: Low, Moderate, or High." }),
+  // FR-UX-06: anonymous option for security/personal safety reports.
+  isAnonymous: z.boolean().optional().default(false),
 });
 
 export type HazardReportInput = z.infer<typeof hazardReportInputSchema>;
