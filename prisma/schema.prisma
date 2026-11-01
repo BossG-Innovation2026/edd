@@ -1,0 +1,168 @@
+// Database schema. Implements docs/SRS.md; requirement IDs mark where each part comes from.
+// Only Module 3.1 (Hazard Logging) and the minimum of Section 2 it needs are modelled here.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ---------------------------------------------------------------------------
+// Section 2: User roles (minimal; approval flow FR-UR-03 and consent FR-UR-04 not built yet)
+// ---------------------------------------------------------------------------
+
+// FR-UR-01: the five roles.
+enum Role {
+  SCHOOL_HEAD
+  DRRM_COORDINATOR
+  SCHOOL_PERSONNEL
+  COMMUNITY_USER
+  SYSTEM_ADMINISTRATOR
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String // NFR-SE-01: passwords stored hashed (bcrypt)
+  // FR-HL-01: only active users may submit. Accounts start inactive (FR-UR-03).
+  active       Boolean    @default(false)
+  roles        UserRole[] // FR-UR-10: one account may hold more than one role
+  createdAt    DateTime   @default(now())
+
+  reportsSubmitted HazardReport[] @relation("Reporter")
+  reportsVerified  HazardReport[] @relation("Verifier")
+}
+
+model UserRole {
+  userId String
+  role   Role
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+}
+
+// ---------------------------------------------------------------------------
+// FR-HL-03 / FR-UR-06: school map. Zones are seeded as sample data until the
+// System Administrator's map setup (FR-HL-03) is built.
+// ---------------------------------------------------------------------------
+
+model Zone {
+  id        String         @id @default(cuid())
+  building  String // e.g. "Building A", or "School grounds"
+  floor     String // e.g. "Ground floor"
+  name      String // e.g. "Classrooms 101-104"
+  sortOrder Int            @default(0)
+  hazards   HazardReport[]
+
+  @@unique([building, floor, name])
+}
+
+// ---------------------------------------------------------------------------
+// FR-HL-02: predefined hazard categories and types (Section 3.1 table).
+// Stored as data, not code, so they can later change through settings (NFR-FL-01, FR-UR-07).
+// ---------------------------------------------------------------------------
+
+model HazardCategory {
+  id        String       @id @default(cuid())
+  code      String       @unique // e.g. "NATURAL"
+  name      String       @unique // e.g. "Natural"
+  sortOrder Int          @default(0)
+  types     HazardType[]
+}
+
+model HazardType {
+  id         String         @id @default(cuid())
+  categoryId String
+  name       String
+  // FR-HL-02: an "other" type requires the reporter to specify the hazard type.
+  isOther    Boolean        @default(false)
+  sortOrder  Int            @default(0)
+  category   HazardCategory @relation(fields: [categoryId], references: [id])
+  hazards    HazardReport[]
+
+  @@unique([categoryId, name])
+}
+
+// ---------------------------------------------------------------------------
+// Section 3.1: hazard records
+// ---------------------------------------------------------------------------
+
+// Section 3.1 status workflow:
+// Submitted -> Under verification -> Verified or Rejected (including duplicates)
+// -> Mitigation in progress -> Resolved.
+enum HazardStatus {
+  SUBMITTED
+  UNDER_VERIFICATION
+  VERIFIED
+  REJECTED
+  MITIGATION_IN_PROGRESS
+  RESOLVED
+}
+
+// Section 3.1 record field: reporter's initial severity (Low, Moderate, High).
+// This is the reporter's impression, not the verifier's 1-5 severity S (Section 3.3).
+enum InitialSeverity {
+  LOW
+  MODERATE
+  HIGH
+}
+
+model HazardReport {
+  id                  String          @id @default(cuid())
+  // Record field: Report ID, human-readable, e.g. HZ-2026-00001.
+  reportId            String          @unique
+  // Record fields: category and type (FR-HL-02). The category is the type's category,
+  // so it is stored once, through the type, and cannot disagree with it.
+  typeId              String
+  // FR-HL-02: required when the type is "Other"; null otherwise.
+  otherTypeSpecified  String?
+  // Record field: school zone, from the school map (FR-HL-04).
+  zoneId              String
+  // Record field: location description; the exact location in text (FR-HL-04).
+  locationDescription String
+  // Record field: date and time observed.
+  observedAt          DateTime
+  // Record field: description.
+  description         String
+  // Record field: reporter's initial severity.
+  initialSeverity     InitialSeverity
+  // Record field: status (FR-HL-06 uses it to keep unverified reports out of scores and dashboards).
+  status              HazardStatus    @default(SUBMITTED)
+  // Record field: reporter.
+  reporterId          String
+  // Record fields: verified by, date verified. Set by the verification step (not built yet).
+  verifiedById        String?
+  verifiedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  type       HazardType    @relation(fields: [typeId], references: [id])
+  zone       Zone          @relation(fields: [zoneId], references: [id])
+  reporter   User          @relation("Reporter", fields: [reporterId], references: [id])
+  verifiedBy User?         @relation("Verifier", fields: [verifiedById], references: [id])
+  // Record field: photos (optional). Upload is FR-HL-05, not built yet; the table is ready for it.
+  photos     HazardPhoto[]
+
+  @@index([status])
+  @@index([zoneId])
+}
+
+// Record field: photos (optional). FR-HL-05 (up to 3 photos, 5 MB each) will fill this table.
+model HazardPhoto {
+  id         String       @id @default(cuid())
+  hazardId   String
+  filePath   String
+  sizeBytes  Int
+  uploadedAt DateTime     @default(now())
+  hazard     HazardReport @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+}
+
+// Yearly counter used to issue sequential Report IDs (HZ-<year>-<number>).
+model ReportCounter {
+  year Int @id
+  last Int @default(0)
+}

@@ -1,0 +1,18 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local databases and secrets
+*.db
+*.db-journal
+.env
+.env.local
+
+# Generated Prisma client
+src/generated/
+
+# Test output
+test-results/
+playwright-report/
+.test-dbs/
